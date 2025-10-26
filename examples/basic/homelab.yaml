@@ -1,0 +1,89 @@
+# Basic Homelab Configuration
+# Minimal setup for getting started
+
+# Core Configuration
+domain: homelab.local
+zone_id: "abcdef1234567890abcdef1234567890" # Replace with your Cloudflare Zone ID
+tailscale_auth_key: "tskey-auth-your-key-here" # Replace with your Tailscale auth key
+
+# Network Configuration
+networks:
+  primary_subnet: "192.168.1.0/24"
+  docker_network: "homelab-basic"
+  mcp_endpoint: 3002
+
+# Hardware Configuration
+hardware:
+  r240:
+    ip: "192.168.1.100"
+    idrac_ip: "192.168.1.200"
+    idrac_user: "root"
+  r7910:
+    ip: "192.168.1.101"
+    idrac_ip: "192.168.1.201"
+    idrac_user: "root"
+
+# Minimal Service Configuration
+services:
+  pangolin:
+    enabled: true
+    api_path: "/api/v1"
+    
+  newt:
+    enabled: true
+    docker_discovery: true
+    
+  olm:
+    enabled: false # Disabled in basic setup
+    interface: "olm0"
+    holepunch: false
+    
+  cloudflared:
+    enabled: true
+    tunnel_name: "homelab-basic"
+    
+  adguard:
+    enabled: true
+    
+  ddns_updater:
+    enabled: false # Disabled in basic setup
+    
+  setec:
+    enabled: true
+    
+  step_ca:
+    enabled: false # Disabled in basic setup
+    
+  yunohost:
+    enabled: false # Disabled in basic setup
+    deployment_type: "lxc"
+    container_id: 200
+    memory: "2048"
+    cores: 2
+    
+  olares:
+    enabled: false # Disabled in basic setup
+    
+  casaos:
+    enabled: false # Disabled in basic setup
+    
+  homepage:
+    enabled: true
+
+# Basic Security (optional)
+security:
+  acme:
+    email: "admin@homelab.local"
+    dns_provider: "cloudflare"
+    challenge_type: "dns-01"
+    cert_duration: "2160h"
+
+# Basic Monitoring (optional)
+monitoring:
+  healthchecks:
+    interval: "60s"
+    timeout: "10s"
+    retries: 3
+  logging:
+    level: "info"
+    format: "text"

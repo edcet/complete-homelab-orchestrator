@@ -1,0 +1,167 @@
+# Complete Homelab Configuration - Advanced Setup
+# Production-ready configuration with all services enabled
+
+metadata:
+  deployment_id: "homelab-advanced-2025"
+  version: "2.2.0"
+  created: "2025-10-26T08:00:00Z"
+
+# Core Configuration
+domain: advanced.homelab.net
+zone_id: "abcdef1234567890abcdef1234567890" # 32-character Cloudflare Zone ID
+tailscale_auth_key: "tskey-auth-example123456789abcdef"
+
+# Network Configuration
+networks:
+  primary_subnet: "192.168.1.0/24"
+  tailnet_domain: "homelab-mesh.ts.net"
+  docker_network: "homelab-advanced"
+  wireguard_port: 51820
+  mcp_endpoint: 3002
+
+# Hardware Configuration
+hardware:
+  r240:
+    ip: "192.168.1.24"
+    idrac_ip: "192.168.1.124"
+    idrac_user: "root"
+    ssh_port: 22
+    proxmox_port: 8006
+  r7910:
+    ip: "192.168.1.25"
+    idrac_ip: "192.168.1.125"
+    idrac_user: "root"
+    ssh_port: 22
+
+# Service Configuration
+services:
+  # Gateway Services
+  pangolin:
+    enabled: true
+    image: "fosrl/pangolin:latest"
+    ports: [3001, 8080, 51820]
+    api_path: "/api/v1"
+    health_endpoint: "/health"
+    wireguard_port: 51820
+    
+  newt:
+    enabled: true
+    image: "fosrl/newt:latest"
+    metrics_port: 2112
+    docker_discovery: true
+    health_file: "/tmp/healthy"
+    log_level: "INFO"
+    
+  olm:
+    enabled: true
+    image: "fosrl/olm:latest"
+    interface: "olm0"
+    holepunch: true
+    
+  # Network Services
+  cloudflared:
+    enabled: true
+    tunnel_name: "homelab-advanced"
+    config_path: "/etc/cloudflared"
+    
+  adguard:
+    enabled: true
+    web_port: 3000
+    dns_port: 53
+    
+  ddns_updater:
+    enabled: true
+    port: 8000
+    update_period: "5m"
+    cooldown_period: "5m"
+    
+  # Security Services
+  setec:
+    enabled: true
+    port: 8080
+    storage_type: "badger"
+    storage_path: "/data"
+    log_level: "info"
+    
+  step_ca:
+    enabled: true
+    port: 9000
+    config_path: "/home/step"
+    
+  # Platform Services
+  yunohost:
+    enabled: true
+    deployment_type: "lxc"
+    container_id: 200
+    memory: "4096"
+    cores: 4
+    storage: "local-zfs"
+    
+  olares:
+    enabled: true
+    port: 8080
+    k8s_port: 6443
+    k8s_integration: true
+    storage_provider: "zfs"
+    
+  casaos:
+    enabled: true
+    port: 80
+    
+  homepage:
+    enabled: true
+    port: 3000
+
+# Integration Configuration
+integrations:
+  pangolin_tailscale:
+    webhook_endpoint: "/api/v1/integrations/tailscale"
+    sync_routes: true
+    auto_discovery: true
+    
+  cloudflare_setec:
+    acme_hook: "/api/v1/integrations/acme"
+    auto_ssl: true
+    wildcard_domains: true
+    
+  service_discovery:
+    scan_interval: "30s"
+    platforms: ["docker", "kubernetes", "yunohost", "olares", "casaos"]
+    auto_register_dns: true
+    auto_configure_proxy: true
+
+# Security Configuration
+security:
+  step_ca:
+    ca_name: "Advanced Homelab CA"
+    default_provisioner: "admin@advanced.homelab.net"
+    key_type: "EC"
+    curve: "P-256"
+    
+  acme:
+    email: "admin@advanced.homelab.net"
+    dns_provider: "cloudflare"
+    challenge_type: "dns-01"
+    cert_duration: "2160h"
+    
+  auth:
+    enable_sso: true
+    oidc_provider: "cloudflare"
+    session_timeout: "24h"
+
+# Monitoring Configuration
+monitoring:
+  healthchecks:
+    interval: "30s"
+    timeout: "10s"
+    retries: 3
+    
+  metrics:
+    prometheus_port: 9090
+    grafana_port: 3001
+    enable_alerts: true
+    
+  logging:
+    level: "info"
+    format: "json"
+    retention: "7d"
