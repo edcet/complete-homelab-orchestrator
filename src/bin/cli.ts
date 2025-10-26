@@ -64,6 +64,59 @@ program
     await runPulumi(cfg, { preview: !!opts.preview, stack: opts.stack });
   });
 
+// AdGuard management commands
+program
+  .command("adguard")
+  .description("AdGuard Home management")
+  .addCommand(
+    new Command("sync-clients")
+      .description("Sync clients from Tailscale mesh")
+      .option("-c, --config <path>", "Path to config file")
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        console.log("🔄 Syncing AdGuard clients from Tailscale...");
+        
+        const { AdGuardHomeClient } = await import("../integrations/adguard");
+        const { TailscaleClient } = await import("../integrations/tailscale");
+        const { AdGuardExporter } = await import("../exporters/adguard-exporter");
+        const { PrometheusServiceDiscovery } = await import("../integrations/prometheus-sd");
+        
+        const adguard = new AdGuardHomeClient(`http://localhost:${cfg.services.adguard.web_port}`);
+        const tailscale = new TailscaleClient(process.env.TAILSCALE_API_KEY!);
+        const prometheus = new PrometheusServiceDiscovery();
+        
+        const exporter = new AdGuardExporter(cfg, adguard, tailscale, prometheus, null as any);
+        await exporter.syncClientsFromTailscale();
+        
+        console.log("✅ Client sync complete");
+      })
+  )
+  .addCommand(
+    new Command("status")
+      .description("Show AdGuard status and metrics")
+      .option("-c, --config <path>", "Path to config file")
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        
+        const { AdGuardHomeClient } = await import("../integrations/adguard");
+        const adguard = new AdGuardHomeClient(`http://localhost:${cfg.services.adguard.web_port}`);
+        
+        try {
+          const stats = await adguard.getStats();
+          const clients = await adguard.getClients();
+          
+          console.log("📊 AdGuard Home Status:");
+          console.log(`   DNS Queries: ${stats.num_dns_queries}`);
+          console.log(`   Blocked: ${stats.num_blocked_filtering}`);
+          console.log(`   Clients: ${clients.length}`);
+          console.log(`   Tailscale Clients: ${clients.filter(c => c.tags?.includes('tailscale')).length}`);
+        } catch (error) {
+          console.error(`❌ Failed to get AdGuard status: ${error.message}`);
+        }
+      })
+  );
+
+// Tailscale management commands
 program
   .command("tailscale")
   .description("Tailscale management commands")
@@ -100,6 +153,43 @@ program
         console.log(`   Devices: ${devices.length}`);
         console.log(`   Routes: ${routes.length} (${routes.filter(r => r.approved).length} approved)`);
         console.log(`   Homelab devices: ${devices.filter(d => d.tags?.includes('tag:homelab')).length}`);
+      })
+  );
+
+// Prometheus management  
+program
+  .command("prometheus")
+  .description("Prometheus service discovery")
+  .addCommand(
+    new Command("generate-targets")
+      .description("Generate Prometheus service discovery targets")
+      .option("-c, --config <path>", "Path to config file")
+      .option("-o, --output <path>", "Output directory", "/tmp/prometheus-sd")
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        const { PrometheusServiceDiscovery } = await import("../integrations/prometheus-sd");
+        
+        const prometheus = new PrometheusServiceDiscovery(opts.output);
+        
+        console.log("📊 Generating Prometheus targets...");
+        
+        // Generate homelab targets
+        const homelabTargets = await prometheus.generateHomelabTargets(
+          cfg.domain, 
+          cfg.networks.primary_subnet
+        );
+        
+        // Discover Docker containers
+        const dockerTargets = await prometheus.syncFromDockerContainers();
+        
+        // Write all targets
+        await prometheus.writeTargets([...homelabTargets, ...dockerTargets]);
+        
+        const counts = await prometheus.getTargetCounts();
+        console.log("✅ Target generation complete:");
+        Object.entries(counts).forEach(([job, count]) => {
+          console.log(`   ${job}: ${count} targets`);
+        });
       })
   );
 

@@ -16,16 +16,24 @@ export class PrometheusServiceDiscovery {
   
   constructor(outputDir: string = "/tmp/prometheus-sd") {
     this.outputDir = outputDir;
+    this.ensureOutputDir();
+  }
+
+  private ensureOutputDir(): void {
+    if (!fs.existsSync(this.outputDir)) {
+      fs.mkdirSync(this.outputDir, { recursive: true });
+    }
   }
 
   async writeTargets(jobs: PrometheusJob[]): Promise<void> {
-    fs.mkdirSync(this.outputDir, { recursive: true });
+    this.ensureOutputDir();
     
     for (const job of jobs) {
       const filePath = path.join(this.outputDir, `${job.job}.json`);
       const content = JSON.stringify(job.targets, null, 2);
+      
       fs.writeFileSync(filePath, content, 'utf8');
-      console.log(`✅ Wrote Prometheus targets: ${job.job} (${job.targets.length} targets)`);
+      console.log(`✅ Wrote Prometheus SD file: ${job.job} (${job.targets.length} targets)`);
     }
   }
 
@@ -38,23 +46,71 @@ export class PrometheusServiceDiscovery {
         targets: [
           {
             targets: [`${baseIP}24:9090`], // Prometheus
-            labels: { service: "prometheus", role: "monitoring", platform: "docker" }
+            labels: { 
+              service: "prometheus", 
+              role: "monitoring", 
+              platform: "docker",
+              instance: "primary"
+            }
           },
           {
-            targets: [`${baseIP}24:3001`], // Grafana
-            labels: { service: "grafana", role: "monitoring", platform: "docker" }
+            targets: [`${baseIP}24:3000`], // Grafana
+            labels: { 
+              service: "grafana", 
+              role: "monitoring", 
+              platform: "docker",
+              instance: "primary"
+            }
           },
           {
             targets: [`${baseIP}24:3001`], // Pangolin
-            labels: { service: "pangolin", role: "gateway", platform: "docker" }
+            labels: { 
+              service: "pangolin", 
+              role: "gateway", 
+              platform: "docker",
+              component: "ingress"
+            }
           },
           {
-            targets: [`${baseIP}24:${8080}`], // Setec
-            labels: { service: "setec", role: "secrets", platform: "docker" }
+            targets: [`${baseIP}24:8080`], // Setec
+            labels: { 
+              service: "setec", 
+              role: "secrets", 
+              platform: "docker",
+              component: "vault"
+            }
           },
           {
             targets: [`${baseIP}24:9000`], // Step-CA
-            labels: { service: "step-ca", role: "certificates", platform: "docker" }
+            labels: { 
+              service: "step-ca", 
+              role: "certificates", 
+              platform: "docker",
+              component: "pki"
+            }
+          }
+        ]
+      },
+      {
+        job: "homelab-dns",
+        targets: [
+          {
+            targets: [`adguard-exporter:9617`], // AdGuard Exporter
+            labels: { 
+              service: "adguard", 
+              role: "dns-filter", 
+              platform: "docker",
+              component: "dns"
+            }
+          },
+          {
+            targets: [`${baseIP}24:3000`], // AdGuard Web UI (for uptime)
+            labels: { 
+              service: "adguard-web", 
+              role: "dns-admin", 
+              platform: "docker",
+              component: "web-ui"
+            }
           }
         ]
       },
@@ -62,29 +118,22 @@ export class PrometheusServiceDiscovery {
         job: "homelab-platforms",
         targets: [
           {
-            targets: [`${baseIP}24:8080`], // Olares
-            labels: { service: "olares", role: "platform", platform: "kubernetes" }
+            targets: [`${baseIP}110:9100`], // Node exporter on YunoHost LXC
+            labels: { 
+              service: "yunohost", 
+              role: "platform", 
+              platform: "lxc",
+              node: "yunohost-lxc"
+            }
           },
           {
-            targets: [`${baseIP}110:80`], // YunoHost
-            labels: { service: "yunohost", role: "platform", platform: "lxc" }
-          },
-          {
-            targets: [`${baseIP}24:8083`], // CasaOS
-            labels: { service: "casaos", role: "platform", platform: "docker" }
-          }
-        ]
-      },
-      {
-        job: "homelab-network",
-        targets: [
-          {
-            targets: [`${baseIP}24:3000`], // AdGuard
-            labels: { service: "adguard", role: "dns", platform: "docker" }
-          },
-          {
-            targets: [`${baseIP}24:8000`], // DDNS Updater
-            labels: { service: "ddns", role: "dns", platform: "docker" }
+            targets: [`${baseIP}201:6443`], // Kubernetes metrics on Olares
+            labels: { 
+              service: "olares", 
+              role: "platform", 
+              platform: "kubernetes",
+              node: "olares-k3s"
+            }
           }
         ]
       },
@@ -92,20 +141,22 @@ export class PrometheusServiceDiscovery {
         job: "homelab-hardware",
         targets: [
           {
-            targets: [`${baseIP}24:8006`], // Proxmox R240
-            labels: { service: "proxmox", role: "hypervisor", hardware: "r240" }
+            targets: [`${baseIP}24:8006`], // Proxmox metrics (via pve-exporter)
+            labels: { 
+              service: "proxmox", 
+              role: "hypervisor", 
+              hardware: "r240",
+              node: "pve"
+            }
           },
           {
-            targets: [`${baseIP}25:8006`], // Proxmox R7910
-            labels: { service: "proxmox", role: "hypervisor", hardware: "r7910" }
-          },
-          {
-            targets: [`${baseIP}124:443`], // iDRAC R240
-            labels: { service: "idrac", role: "bmc", hardware: "r240" }
-          },
-          {
-            targets: [`${baseIP}125:443`], // iDRAC R7910
-            labels: { service: "idrac", role: "bmc", hardware: "r7910" }
+            targets: [`${baseIP}25:8006`], // Proxmox R7910 (if configured)
+            labels: { 
+              service: "proxmox", 
+              role: "hypervisor", 
+              hardware: "r7910",
+              node: "pve2"
+            }
           }
         ]
       }
@@ -113,33 +164,44 @@ export class PrometheusServiceDiscovery {
   }
 
   async syncFromDockerContainers(): Promise<PrometheusJob[]> {
-    // Integration with Docker API to discover containers with metrics endpoints
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
     const execAsync = promisify(exec);
     
     try {
-      const { stdout } = await execAsync('docker ps --format "{{.Names}}\t{{.Ports}}"');
-      const containers = stdout.trim().split('\n').map(line => {
-        const [name, ports] = line.split('\t');
-        return { name, ports };
-      });
+      const { stdout } = await execAsync(
+        'docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Labels}}"'
+      );
+      
+      const containers = stdout.trim().split('\n')
+        .filter(line => line.trim())
+        .map(line => {
+          const [name, ports, labels] = line.split('\t');
+          return { name, ports: ports || '', labels: labels || '' };
+        });
       
       const targets: PrometheusTarget[] = [];
       
       for (const container of containers) {
-        // Look for metrics ports (common: 9090, 9091, 2112, 8080/metrics)
-        const metricsPortMatch = container.ports.match(/(\d+):([0-9]+)/);
-        if (metricsPortMatch) {
-          const [, externalPort] = metricsPortMatch;
-          targets.push({
-            targets: [`localhost:${externalPort}`],
-            labels: {
-              service: container.name,
-              platform: "docker",
-              job: "docker-containers"
-            }
-          });
+        // Look for prometheus scrape labels
+        if (container.labels.includes('prometheus.scrape=true')) {
+          const portMatch = container.labels.match(/prometheus\.port=([0-9]+)/);
+          const pathMatch = container.labels.match(/prometheus\.path=([^,]+)/);
+          
+          if (portMatch) {
+            const port = portMatch[1];
+            const path = pathMatch ? pathMatch[1] : '/metrics';
+            
+            targets.push({
+              targets: [`${container.name}:${port}`],
+              labels: {
+                service: container.name,
+                platform: "docker",
+                job: "docker-discovered",
+                metrics_path: path
+              }
+            });
+          }
         }
       }
       
@@ -153,11 +215,38 @@ export class PrometheusServiceDiscovery {
     }
   }
 
-  async healthCheck(): Promise<boolean> {
+  async listTargetFiles(): Promise<string[]> {
     try {
-      return fs.existsSync(this.outputDir);
+      const files = fs.readdirSync(this.outputDir)
+        .filter(file => file.endsWith('.json'))
+        .map(file => path.join(this.outputDir, file));
+      
+      return files;
     } catch {
-      return false;
+      return [];
     }
+  }
+
+  async getTargetCounts(): Promise<Record<string, number>> {
+    const files = await this.listTargetFiles();
+    const counts: Record<string, number> = {};
+    
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(file, 'utf8');
+        const targets = JSON.parse(content);
+        const jobName = path.basename(file, '.json');
+        counts[jobName] = Array.isArray(targets) ? targets.length : 0;
+      } catch (error) {
+        console.warn(`⚠️ Failed to read target file ${file}: ${error.message}`);
+        counts[path.basename(file, '.json')] = 0;
+      }
+    }
+    
+    return counts;
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return fs.existsSync(this.outputDir) && fs.lstatSync(this.outputDir).isDirectory();
   }
 }
