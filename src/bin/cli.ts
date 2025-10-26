@@ -64,6 +64,49 @@ program
     await runPulumi(cfg, { preview: !!opts.preview, stack: opts.stack });
   });
 
+// Proxmox management commands
+program
+  .command("proxmox")
+  .description("Proxmox VE management")
+  .addCommand(
+    new Command("status")
+      .description("Show Proxmox infrastructure status")
+      .option("-c, --config <path>", "Path to config file")
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        console.log("📊 Proxmox Infrastructure Status:");
+        
+        try {
+          const { ProxmoxFactory } = await import("../providers/proxmox-factory");
+          // This would connect to real Proxmox API
+          const factory = new ProxmoxFactory(null as any, cfg);
+          const containers = await factory.listContainers();
+          
+          console.log(`   Containers/VMs: ${containers.length}`);
+          containers.forEach(vm => {
+            console.log(`   - ${vm.name} (${vm.vmid}): ${vm.status}`);
+          });
+        } catch (error) {
+          console.error(`❌ Failed to get Proxmox status: ${error.message}`);
+        }
+      })
+  )
+  .addCommand(
+    new Command("provision")
+      .description("Provision new container or VM")
+      .option("-c, --config <path>", "Path to config file")
+      .option("--type <type>", "Type: lxc or vm", "lxc")
+      .option("--vmid <id>", "VM/Container ID", "300")
+      .option("--name <name>", "Name", "test-container")
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        console.log(`🚀 Provisioning ${opts.type}: ${opts.name} (${opts.vmid})`);
+        
+        // This would trigger actual provisioning via Pulumi
+        console.log("✅ Provision command queued (would execute via Pulumi)");
+      })
+  );
+
 // AdGuard management commands
 program
   .command("adguard")

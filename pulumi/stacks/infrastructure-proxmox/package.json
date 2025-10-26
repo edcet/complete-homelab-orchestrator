@@ -1,0 +1,11 @@
+{
+  "name": "@homelab/infrastructure-proxmox",
+  "version": "1.0.0",
+  "description": "Proxmox VE infrastructure provisioning stack",
+  "main": "index.ts",
+  "dependencies": {
+    "@pulumi/pulumi": "^3.95.0",
+    "@muhlba91/pulumi-proxmoxve": "^6.3.0",
+    "@pulumi/command": "^0.9.2"
+  }
+}
