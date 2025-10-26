@@ -1,0 +1,212 @@
+# Production Configuration: rns.lol + R240
+# Deploy: homelab deploy -c examples/production/rns-lol-config.yaml
+
+# Domain and DNS
+domain: "rns.lol"
+zone_id: "4с6е224b45c0a417d2654a388973c3ad"
+
+# Hardware: Dell R240 with Proxmox VE 9
+hardware:
+  r240:
+    ip: "192.168.1.24"
+    idrac_ip: "192.168.1.124"
+    proxmox_port: 8006
+    ssh_user: "root"
+    # Password from env: PROXMOX_PASSWORD="        "
+    
+# Network Configuration
+networks:
+  primary_subnet: "192.168.1.0/24"
+  tailnet_domain: "curl-chimera.ts.net"
+  vlan_isolation: false  # Single flat network for simplicity
+  ipv6_enabled: true
+
+# Service Stack
+services:
+  # AdGuard Home with Privacy-First DNS
+  adguard:
+    enabled: true
+    web_port: 3080
+    dns_port: 53
+    container_id: 100
+    upstreams:
+      - "https://d.adguard-dns.com/dns-query/8f6cee2a"  # Your custom DoH
+      - "https://d.adguard-dns.com/dns-query/"           # Fallback DoH
+      - "tls://8f6cee2a.d.adguard-dns.com"              # DoT with your ID
+      - "quic://8f6cee2a.d.adguard-dns.com"             # DoQ with your ID
+    upstream_addrs:
+      - "94.140.14.49"                                  # AdGuard IPv4 primary
+      - "94.140.14.59"                                  # AdGuard IPv4 secondary  
+      - "2a10:50c0:c000::969a:5a49"                     # AdGuard IPv6 primary
+      - "2a10:50c0:c000::1:969a:5a49"                   # AdGuard IPv6 secondary
+    blocklists:
+      - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+      - "https://someonewhocares.org/hosts/zero/hosts"
+      - "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adware.txt"
+    tailscale_client_sync: true
+    prometheus_metrics: true
+    
+  # Tailscale Mesh VPN
+  tailscale:
+    enabled: true
+    # Uses env: TAILSCALE_AUTHKEY
+    control_url: "curl-chimera.ts.net"
+    exit_node: false  # R240 as subnet router, not exit node
+    subnet_routes:
+      - "192.168.1.0/24"
+    tags:
+      - "tag:homelab"
+      - "tag:infrastructure" 
+      - "tag:proxmox"
+      - "tag:r240"
+      - "tag:dns-server"
+    acl_sync: true
+    route_auto_approve: true
+
+  # Cloudflare Tunnels + DNS
+  cloudflare:
+    enabled: true
+    # Uses env: CF_API_TOKEN, CF_ZONE_ID, CF_ACCOUNT_ID
+    tunnel_name: "homelab-r240"
+    services:
+      - hostname: "proxmox.rns.lol"
+        service: "https://192.168.1.24:8006"
+        tls_verify: false  # Self-signed Proxmox cert
+      - hostname: "adguard.rns.lol" 
+        service: "http://192.168.1.24:3080"
+      - hostname: "grafana.rns.lol"
+        service: "http://192.168.1.24:3000"
+      - hostname: "prometheus.rns.lol"
+        service: "http://192.168.1.24:9090"
+    dns_records:
+      - name: "homelab"
+        type: "A"
+        content: "192.168.1.24"
+        ttl: 300
+      - name: "r240" 
+        type: "A"
+        content: "192.168.1.24"
+        ttl: 300
+        
+  # Olares Cloud OS (K3s + Apps)
+  olares:
+    enabled: true
+    container_id: 200
+    cores: 4
+    memory: "8192"
+    storage: "64"
+    template: "ubuntu-22.04-standard"
+    k3s_version: "v1.28.4+k3s1"
+    k3s_oidc: true
+    domain_suffix: "olares.rns.lol"
+    features:
+      nesting: true
+      mount: "nfs;cifs"
+      
+  # YunoHost Self-Hosting Platform
+  yunohost:
+    enabled: true
+    container_id: 201
+    cores: 2
+    memory: "4096" 
+    storage: "32"
+    template: "debian-12-standard"
+    domain_suffix: "yunohost.rns.lol"
+    apps:
+      - "nextcloud"      # File sharing
+      - "grafana"        # Additional monitoring
+      - "jellyfin"       # Media server
+      - "homer"          # Dashboard
+      
+  # Monitoring Stack
+  monitoring:
+    enabled: true
+    prometheus:
+      port: 9090
+      retention: "30d"
+      scrape_interval: "30s"
+    grafana:
+      port: 3000
+      default_user: "admin"
+      default_password: "homelab123"  # Change after first login
+    exporters:
+      node: true
+      proxmox: true
+      adguard: true
+      tailscale: true
+      cloudflared: true
+      
+  # Pangolin Ecosystem
+  pangolin:
+    enabled: true
+    gateway_port: 3001
+    metrics_port: 3002
+    components:
+      - "newt"     # Tunnel client
+      - "gerbil"   # Reverse proxy
+      - "badger"   # Storage
+      - "olm"      # WireGuard manager
+      
+# Storage Configuration
+storage:
+  boss_s1:
+    enabled: true
+    raid_level: "RAID1"
+    verify_before_deploy: true
+    
+  zfs:
+    enabled: true
+    pool_name: "rpool"
+    arc_max: "16G"  # Adjust based on available RAM
+    datasets:
+      - name: "data"
+        mountpoint: "/rpool/data"
+        compression: "lz4"
+      - name: "backups"
+        mountpoint: "/rpool/backups" 
+        compression: "gzip-9"
+      - name: "vms"
+        mountpoint: "/rpool/vms"
+        recordsize: "64k"  # Optimized for VM images
+        
+# Security Configuration
+security:
+  ssh_ca: true
+  ssh_port: 22
+  fail2ban: true
+  ufw_enabled: true
+  ufw_rules:
+    - "allow from 100.64.0.0/10 to any port 22"     # Tailscale SSH
+    - "allow from 192.168.1.0/24 to any port 8006"  # Local Proxmox access
+    - "allow from 192.168.1.0/24 to any port 3080"  # Local AdGuard access
+    - "deny 22"                                      # Block external SSH
+  step_ca:
+    enabled: true
+    issuer: "homelab-ca@rns.lol"
+    
+# Backup Strategy
+backups:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: "30d"
+  destinations:
+    - type: "local"
+      path: "/rpool/backups"
+    - type: "tailscale-send"
+      target_device: "backup-server"  # If you have another Tailscale device
+      
+# Automation and Self-Healing
+automation:
+  auto_updates: true
+  health_checks: true
+  self_healing: true
+  metric_collection: true
+  alert_webhook: ""  # Add Slack/Discord webhook if desired
+  
+# Resource Limits and Optimization
+resources:
+  cpu_governor: "performance"
+  swap_enabled: true
+  swap_size: "4G"
+  kernel_optimization: true
+  network_optimization: true
