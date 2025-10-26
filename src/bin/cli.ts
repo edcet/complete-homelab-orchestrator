@@ -65,6 +65,45 @@ program
   });
 
 program
+  .command("tailscale")
+  .description("Tailscale management commands")
+  .addCommand(
+    new Command("reconcile")
+      .description("Run Tailscale state reconciliation")
+      .option("-c, --config <path>", "Path to config file")
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        const { TailscaleClient } = await import("../integrations/tailscale");
+        const { TailscaleReconciler } = await import("../integrations/tailscale-reconciler");
+        
+        const client = new TailscaleClient(process.env.TAILSCALE_API_KEY!);
+        const reconciler = new TailscaleReconciler(client, cfg);
+        
+        console.log("🔄 Running Tailscale reconciliation...");
+        await reconciler.reconcileState();
+        console.log("✅ Reconciliation complete");
+      })
+  )
+  .addCommand(
+    new Command("status")
+      .description("Show Tailscale mesh status")
+      .option("-c, --config <path>", "Path to config file") 
+      .action(async (opts) => {
+        const cfg = readConfig(opts.config);
+        const { TailscaleClient } = await import("../integrations/tailscale");
+        
+        const client = new TailscaleClient(process.env.TAILSCALE_API_KEY!);
+        const devices = await client.getDevices();
+        const routes = await client.getRoutes();
+        
+        console.log("📊 Tailscale Mesh Status:");
+        console.log(`   Devices: ${devices.length}`);
+        console.log(`   Routes: ${routes.length} (${routes.filter(r => r.approved).length} approved)`);
+        console.log(`   Homelab devices: ${devices.filter(d => d.tags?.includes('tag:homelab')).length}`);
+      })
+  );
+
+program
   .command("status")
   .description("Show orchestrator status")
   .option("-c, --config <path>", "Path to config file")
@@ -118,14 +157,6 @@ program
       console.error(`❌ Schema emit failed: ${error.message}`);
       process.exit(1);
     }
-  });
-
-program
-  .command("interactive")
-  .description("Interactive setup wizard")
-  .action(async () => {
-    const { runInteractiveWizard } = await import("../wizard/interactive");
-    await runInteractiveWizard();
   });
 
 program.parse();

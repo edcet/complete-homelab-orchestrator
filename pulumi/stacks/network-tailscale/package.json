@@ -1,0 +1,10 @@
+{
+  "name": "@homelab/network-tailscale",
+  "version": "1.0.0",
+  "description": "Tailscale mesh network stack",
+  "main": "index.ts",
+  "dependencies": {
+    "@pulumi/pulumi": "^3.95.0",
+    "@pulumi/tailscale": "^0.15.0"
+  }
+}
