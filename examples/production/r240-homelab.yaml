@@ -1,0 +1,131 @@
+# Production Homelab Configuration - Dell R240 + PVE9
+# Target: 192.168.1.24 (Proxmox VE 9)
+# Deploy: homelab deploy -c examples/production/r240-homelab.yaml
+
+domain: "homelab.local"  # Change to your domain
+zone_id: "your-cloudflare-zone-id"  # Get from Cloudflare dashboard
+
+# Hardware Configuration
+hardware:
+  r240:
+    ip: "192.168.1.24"
+    idrac_ip: "192.168.1.124"  # Adjust if different
+    proxmox_port: 8006
+    ssh_user: "root"
+    # Set via env: PROXMOX_PASSWORD="        "
+    
+# Network Configuration  
+networks:
+  primary_subnet: "192.168.1.0/24"
+  tailnet_domain: "tail-scale.ts.net"  # From tailscale status
+  vlan_isolation: true
+  ipv6_enabled: true
+
+# Core Services
+services:
+  # AdGuard Home DNS
+  adguard:
+    enabled: true
+    web_port: 3080
+    dns_port: 53
+    container_id: 100
+    blocklists:
+      - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+      - "https://someonewhocares.org/hosts/zero/hosts"
+    tailscale_client_sync: true
+    
+  # Tailscale Mesh VPN
+  tailscale:
+    enabled: true
+    # Set via env: TAILSCALE_AUTHKEY="tskey-auth-..."
+    exit_node: false  # Enable if you want R240 as exit node
+    subnet_routes:
+      - "192.168.1.0/24"
+    tags:
+      - "tag:homelab"
+      - "tag:infrastructure"
+      - "tag:proxmox"
+
+  # Cloudflared Tunnel
+  cloudflare:
+    enabled: true
+    # Set via env: CLOUDFLARE_TOKEN="..."
+    tunnel_name: "homelab-r240"
+    services:
+      - hostname: "proxmox.homelab.local"
+        service: "https://192.168.1.24:8006"
+        
+  # Olares Cloud OS Platform
+  olares:
+    enabled: true
+    container_id: 200
+    cores: 4
+    memory: "8192"
+    storage: "64"
+    k3s_oidc: true
+    domain_suffix: "olares.homelab.local"
+    
+  # YunoHost Self-Hosting Platform  
+  yunohost:
+    enabled: true
+    container_id: 201
+    cores: 2
+    memory: "4096"
+    storage: "32"
+    apps:
+      - "adguardhome"
+      - "nextcloud"
+      - "grafana"
+      
+  # Monitoring Stack
+  monitoring:
+    enabled: true
+    prometheus_port: 9090
+    grafana_port: 3000
+    exporters:
+      - "node"
+      - "proxmox"
+      - "adguard"
+      - "tailscale"
+      
+# Storage Configuration (Dell R240 with BOSS S1)
+storage:
+  boss_s1:
+    enabled: true
+    raid_level: "RAID1"
+    drives: 2
+    
+  zfs:
+    enabled: true
+    pool_name: "rpool"
+    datasets:
+      - name: "data"
+        mountpoint: "/rpool/data"
+      - name: "backups" 
+        mountpoint: "/rpool/backups"
+        
+# Security Configuration
+security:
+  ssh_ca: true
+  fail2ban: true
+  ufw_enabled: true
+  certificate_authority:
+    enabled: true
+    provider: "step-ca"
+    
+# Backup Configuration
+backups:
+  enabled: true
+  destinations:
+    - type: "s3"
+      bucket: "homelab-backups"  # Create in your cloud provider
+      region: "us-east-1"
+    - type: "local"
+      path: "/rpool/backups"
+      
+# Automation Features
+automation:
+  auto_updates: true
+  health_checks: true
+  self_healing: true
+  metric_collection: true
