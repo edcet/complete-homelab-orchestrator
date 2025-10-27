@@ -2,11 +2,11 @@ import * as pulumi from "@pulumi/pulumi";
 import * as proxmoxve from "@muhlba91/pulumi-proxmoxve";
 import { HomelabConfig } from "../../../src/types/schemas";
 import { YunoHost, createYunoHost } from "./yunohost";
+import { createOlares } from "./olares/proxmox-provider";
 
 const config = new pulumi.Config();
 const homelabConfig: HomelabConfig = config.requireObject("homelab");
 const escSecrets = new pulumi.Config("secrets");
-
 // Proxmox provider configuration (native)
 const proxmoxProvider = new proxmoxve.Provider("proxmox", {
   endpoint: `https://${homelabConfig.hardware.r240.ip}:${homelabConfig.hardware.r240.proxmox_port || 8006}/api2/json`,
@@ -14,7 +14,6 @@ const proxmoxProvider = new proxmoxve.Provider("proxmox", {
   password: escSecrets.requireSecret("proxmox-password"),
   insecure: true,
 });
-
 // Storage (native)
 const zfsStorage = new proxmoxve.Storage("homelab-zfs", {
   nodeNames: [homelabConfig.hardware.r240.node_name || "pve"],
@@ -24,7 +23,6 @@ const zfsStorage = new proxmoxve.Storage("homelab-zfs", {
   content: ["images", "rootdir"],
   sparse: true,
 }, { provider: proxmoxProvider });
-
 // Build YunoHost using pure Pulumi resources
 if (homelabConfig.services.yunohost.enabled) {
   const yh = createYunoHost("yunohost", {
@@ -67,8 +65,13 @@ if (homelabConfig.services.yunohost.enabled) {
     },
     sso: { enabled: true },
   }, { provider: proxmoxProvider });
-
   export const yunohostIp = yh.instance.ip;
   export const yunohostDomain = yh.instance.domain;
   export const apps = yh.instance.apps;
+}
+
+// Build Olares using pure Pulumi resources (no shell, no cloud-init)
+if ((homelabConfig as any).services?.olares?.enabled) {
+  const ol = createOlares("olares", homelabConfig as any, { provider: proxmoxProvider });
+  export const olaresVmId = ol.vm.id;
 }
