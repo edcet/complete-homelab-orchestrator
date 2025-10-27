@@ -1,24 +1,23 @@
-version: '3.8'
-
+version: '3.9'
+name: homelab-ecosystem
+x-compose-observability: true
 services:
-  # Enhanced Pangolin Gateway with OpenMetrics
   pangolin:
-    image: fosrl/pangolin:latest
+    image: fosrl/pangolin:1.0.0
     container_name: pangolin-gateway
     restart: unless-stopped
     ports:
-      - "3001:3001"  # Main API
-      - "3002:3002"  # OpenMetrics
+      - "3001:3001"
+      - "3002:3002"
     environment:
       - PANGOLIN_CONFIG=/app/config/config.toml
-      - PANGOLIN_JWT_SECRET=${PANGOLIN_JWT_SECRET:-dev-secret}
+      - PANGOLIN_JWT_SECRET=${PANGOLIN_JWT_SECRET:-change-me}
       - PANGOLIN_METRICS_FORMAT=openmetrics
       - RUST_LOG=info
     volumes:
       - ./config/pangolin:/app/config:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - homelab
+    networks: [homelab]
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port=3002"
@@ -27,44 +26,41 @@ services:
       - "homelab.service=pangolin"
       - "pangolin.component=core"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-  # Newt Tunnel Client with Docker Socket Health Checks
   newt:
-    image: fosrl/newt:latest
+    image: fosrl/newt:1.0.0
     container_name: newt-tunnels
     restart: unless-stopped
     ports:
-      - "2112:2112"  # Main service
-      - "2113:2113"  # Control/health
+      - "2112:2112"
+      - "2113:2113"
     environment:
       - NEWT_CONFIG=/app/config/config.yaml
       - DOCKER_SOCKET_CHECK=enabled
     volumes:
       - ./config/newt:/app/config:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - homelab
+    networks: [homelab]
     labels:
       - "homelab.service=newt"
       - "pangolin.component=tunneling"
+    depends_on:
+      pangolin:
+        condition: service_healthy
     healthcheck:
-      test: [
-        "CMD", "sh", "-c",
-        "curl -f http://localhost:2113/health && test -w /var/run/docker.sock"
-      ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 45s
+      test: ["CMD-SHELL", "curl -sf http://localhost:2113/health && test -w /var/run/docker.sock"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
 
-  # Gerbil Nginx Proxy with mTLS to Pangolin
   gerbil:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     container_name: gerbil-proxy
     restart: unless-stopped
     ports:
@@ -72,21 +68,20 @@ services:
     volumes:
       - ./config/gerbil/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/ssl:ro
-    networks:
-      - homelab
+    networks: [homelab]
     labels:
       - "homelab.service=gerbil"
       - "pangolin.component=proxy"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     depends_on:
-      - pangolin
+      pangolin:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-  # Badger Storage with JWT Auth Middleware
   badger:
     image: dgraph/badger:latest
     container_name: badger-auth
@@ -95,34 +90,29 @@ services:
       - "8081:8080"
     environment:
       - BADGER_CONFIG=/app/config/config.yaml
-      - BADGER_JWT_SECRET=${BADGER_JWT_SECRET:-dev-secret}
+      - BADGER_JWT_SECRET=${BADGER_JWT_SECRET:-change-me}
       - BADGER_AUTH_ENABLED=true
     volumes:
       - ./config/badger:/app/config:ro
       - badger-data:/data
-    networks:
-      - homelab
+    networks: [homelab]
     labels:
       - "homelab.service=badger"
       - "pangolin.component=storage"
     healthcheck:
-      test: [
-        "CMD", "curl", "-H", "Authorization: Bearer test",
-        "-f", "http://localhost:8080/health"
-      ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      test: ["CMD-SHELL", "curl -sf -H 'Authorization: Bearer test' http://localhost:8080/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-  # Olm WireGuard Lifecycle Manager
   olm:
-    image: alpine:latest
+    image: alpine:3.20
     container_name: olm-wireguard
     restart: unless-stopped
     ports:
       - "9090:9090"
-      - "51820:51820/udp"  # WireGuard
+      - "51820:51820/udp"
     environment:
       - OLM_CONFIG=/app/config/config.toml
       - WG_INTERFACE=wg-homelab
@@ -130,39 +120,32 @@ services:
     volumes:
       - ./config/olm:/app/config:ro
       - /lib/modules:/lib/modules:ro
-    networks:
-      - homelab
+    networks: [homelab]
     labels:
       - "homelab.service=olm"
       - "pangolin.component=networking"
     privileged: true
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
+    cap_add: [NET_ADMIN, SYS_MODULE]
     command: |
-      sh -c '
-        apk add --no-cache wireguard-tools curl &&
-        wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key &&
+      sh -euc '
+        apk add --no-cache wireguard-tools curl iproute2 &&
+        [ -f /etc/wireguard/private.key ] || ( umask 077 && wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key );
         while true; do
-          if ! ip link show wg-homelab >/dev/null 2>&1; then
-            ip link add wg-homelab type wireguard
-            wg set wg-homelab private-key /etc/wireguard/private.key
-            ip addr add 10.100.0.1/24 dev wg-homelab
-            ip link set wg-homelab up
-            echo "WireGuard interface wg-homelab created and configured"
+          if ! ip link show ${WG_INTERFACE} >/dev/null 2>&1; then
+            ip link add ${WG_INTERFACE} type wireguard
+            wg set ${WG_INTERFACE} private-key /etc/wireguard/private.key
+            ip addr add 10.100.0.1/24 dev ${WG_INTERFACE}
+            ip link set ${WG_INTERFACE} up
+            echo "WireGuard interface ${WG_INTERFACE} created and configured"
           fi
           sleep 30
-        done
-      '
+        done'
     healthcheck:
-      test: [
-        "CMD", "sh", "-c",
-        "ip link show wg-homelab && curl -f http://localhost:9090/health"
-      ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 45s
+      test: ["CMD-SHELL", "ip link show ${WG_INTERFACE} >/dev/null 2>&1 && curl -sf http://localhost:9090/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
 
 networks:
   homelab:
