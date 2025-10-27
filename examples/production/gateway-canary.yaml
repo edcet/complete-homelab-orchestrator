@@ -1,0 +1,49 @@
+# Gateway Canary Deployment Configuration
+# Progressive traffic shifting for zero-downtime gateway updates
+
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: api-gateway
+  namespace: homelab
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  progressDeadlineSeconds: 300
+  service:
+    port: 8080
+    targetPort: 8080
+  analysis:
+    interval: 30s
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 10
+    metrics:
+      - name: request-success-rate
+        thresholdRange:
+          min: 99
+        interval: 1m
+      - name: request-duration
+        thresholdRange:
+          max: 500
+        interval: 30s
+      # TODO: Add custom mesh anomaly metrics
+      # - name: mesh-anomaly-score
+      #   thresholdRange:
+      #     max: 0.2
+      #   interval: 1m
+    webhooks:
+      # TODO: Implement pre-rollout validation
+      # - name: pre-rollout
+      #   type: pre-rollout
+      #   url: http://compliance-validator/validate
+      # TODO: Implement post-rollout verification
+      # - name: smoke-test
+      #   type: post-rollout
+      #   url: http://test-runner/smoke-tests
+      # TODO: Add alerting integration
+      - name: send-notification
+        type: event
+        url: http://alertmanager:9093/api/v1/alerts
