@@ -1,0 +1,38 @@
+name: MCP Validate
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - 'docker-compose.ecosystem.yml'
+      - 'scripts/hooks/monitoring/**'
+  pull_request:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+          sudo snap install yq || true
+          sudo apt-get install -y shellcheck || true
+      - name: Compose config validation
+        run: |
+          docker --version || true
+          echo "Running compose config validation"
+          docker compose -f docker-compose.ecosystem.yml config
+      - name: Run MCP validation hook
+        run: |
+          chmod +x scripts/hooks/monitoring/mcp-validation-hook.sh
+          scripts/hooks/monitoring/mcp-validation-hook.sh
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-validation-logs
+          path: |
+            docker-compose.ecosystem.yml
+            scripts/hooks/monitoring/mcp-validation-hook.sh
